@@ -28,10 +28,27 @@ namespace ExtendedStorage.Patches
 
                 if (apparels.Count > 1)
                 {
-                    FloatMenuOption baseOption = CreateMenuOption(pawn, apparels[0]);
+                    FloatMenuOption baseOption = CreateMenuOptionApparel(pawn, apparels[0]);
                     int baseIndex = opts.FirstIndexOf(mo => mo.Label == baseOption.Label); // maybe this is hinky.... can this ever get the wrong option if comparing just by label???
 
-                    IEnumerable<FloatMenuOption> extraOptions = apparels.Skip(1).Select(a => CreateMenuOption(pawn, a));
+                    IEnumerable<FloatMenuOption> extraOptions = apparels.Skip(1).Select(a => CreateMenuOptionApparel(pawn, a));
+
+                    if (baseIndex == -1)
+                        opts.AddRange(extraOptions);
+                    else
+                        opts.InsertRange(baseIndex + 1, extraOptions);
+                }
+            }
+            else if (storage?.def.defName == @"Storage_LargeWeaponsRack")
+            {
+                List<ThingWithComps> equipment = pawn.Map.thingGrid.ThingsAt(c).OfType<ThingWithComps>().Where(t => t.TryGetComp<CompEquippable>() != null).ToList();
+
+                if (equipment.Count > 1)
+                {
+                    FloatMenuOption baseOption = CreateMenuOptionEquipment(pawn, equipment[0]);
+                    int baseIndex = opts.FirstIndexOf(mo => mo.Label == baseOption.Label); // maybe this is hinky.... can this ever get the wrong option if comparing just by label???
+
+                    IEnumerable<FloatMenuOption> extraOptions = equipment.Skip(1).Select(eq => CreateMenuOptionEquipment(pawn, eq));
 
                     if (baseIndex == -1)
                         opts.AddRange(extraOptions);
@@ -41,7 +58,45 @@ namespace ExtendedStorage.Patches
             }
         }
 
-        private static FloatMenuOption CreateMenuOption(Pawn pawn, Apparel apparel)
+        private static FloatMenuOption CreateMenuOptionEquipment(Pawn pawn, ThingWithComps equipment)
+        {
+            string labelShort = equipment.LabelShort;
+            FloatMenuOption option;
+            if (equipment.def.IsWeapon && pawn.story.WorkTagIsDisabled(WorkTags.Violent))
+            {
+                option = new FloatMenuOption("CannotEquip".Translate(labelShort) + " (" + "IsIncapableOfViolenceLower".Translate(pawn.LabelShort, pawn) + ")", null, MenuOptionPriority.Default, null, null, 0f, null, null);
+            }
+            else if (!pawn.CanReach(equipment, PathEndMode.ClosestTouch, Danger.Deadly, false, TraverseMode.ByPawn))
+            {
+                option = new FloatMenuOption("CannotEquip".Translate(labelShort) + " (" + "NoPath".Translate() + ")", null, MenuOptionPriority.Default, null, null, 0f, null, null);
+            }
+            else if (!pawn.health.capacities.CapableOf(PawnCapacityDefOf.Manipulation))
+            {
+                option = new FloatMenuOption("CannotEquip".Translate(labelShort) + " (" + "Incapable".Translate() + ")", null, MenuOptionPriority.Default, null, null, 0f, null, null);
+            }
+            else if (equipment.IsBurning())
+            {
+                option = new FloatMenuOption("CannotEquip".Translate(labelShort) + " (" + "BurningLower".Translate() + ")", null, MenuOptionPriority.Default, null, null, 0f, null, null);
+            }
+            else
+            {
+                string textUpdated = "Equip".Translate(labelShort);
+                if (equipment.def.IsRangedWeapon && pawn.story != null && pawn.story.traits.HasTrait(TraitDefOf.Brawler))
+                {
+                    textUpdated = textUpdated + " " + "EquipWarningBrawler".Translate();
+                }
+                option = FloatMenuUtility.DecoratePrioritizedTask(new FloatMenuOption(textUpdated, delegate
+                {
+                    equipment.SetForbidden(false, true);
+                    pawn.jobs.TryTakeOrderedJob(new Job(JobDefOf.Equip, equipment), JobTag.Misc);
+                    MoteMaker.MakeStaticMote(equipment.DrawPos, equipment.Map, ThingDefOf.Mote_FeedbackEquip, 1f);
+                    PlayerKnowledgeDatabase.KnowledgeDemonstrated(ConceptDefOf.EquippingWeapons, KnowledgeAmount.Total);
+                }, MenuOptionPriority.High, null, null, 0f, null, null), pawn, equipment, "ReservedBy");
+            }
+            return option;
+        }
+
+        private static FloatMenuOption CreateMenuOptionApparel(Pawn pawn, Apparel apparel)
         {
             // original code taken from FloatMenuMakerMap_AddHumanlikeOrders
             if (!pawn.CanReach(apparel, PathEndMode.ClosestTouch, Danger.Deadly, false, TraverseMode.ByPawn))
